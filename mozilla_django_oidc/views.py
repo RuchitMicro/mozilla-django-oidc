@@ -3,13 +3,14 @@ from urllib.parse import urlencode
 
 from django.contrib import auth
 from django.core.exceptions import SuspiciousOperation
-from django.http import HttpResponseNotAllowed, HttpResponseRedirect
+from django.http import HttpResponseNotAllowed, HttpResponseRedirect, JsonResponse
 from django.shortcuts import resolve_url
 from django.urls import reverse
 from django.utils.crypto import get_random_string
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.module_loading import import_string
 from django.views.generic import View
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from mozilla_django_oidc.utils import (
     absolutify,
@@ -62,8 +63,64 @@ class OIDCAuthenticationCallbackView(View):
             time.time() + expiration_interval
         )
 
-        return HttpResponseRedirect(self.success_url)
+        self.user = self.create_jwt(self.user)
+        self.user.jwt_token["access"]
+        data = {
+            'access_token': self.user.jwt_token["access"],
+            'refresh_token': self.user.jwt_token["refresh"],
+            'user_id': self.user.get_json(),
+            'redirect_url': self.success_url,
+        } 
 
+        # Create a response object for redirection
+        response = HttpResponseRedirect(data["redirect_url"])
+
+        # Set cookies for access and refresh tokens
+        response.set_cookie(
+            'access_token', 
+            self.user.jwt_token["access"], 
+            domain      =   self.get_settings('SESSION_COOKIE_DOMAIN'),  # Allows access from all subdomains
+            secure      =   True,  # Ensures transmission only over HTTPS
+            # httponly=True, # If you want to prevent access via JavaScript
+            samesite    =   'None' # Necessary if cookies are accessed in cross-site context
+        )
+        response.set_cookie(
+            'refresh_token', 
+            self.user.jwt_token["refresh"], 
+            domain      =   self.get_settings('SESSION_COOKIE_DOMAIN'),
+            secure      =   True,
+            samesite    =   'None'
+        )
+        response.set_cookie(
+            'user_id', 
+            self.user.id, 
+            domain      =   self.get_settings('SESSION_COOKIE_DOMAIN'),
+            secure      =   True,
+            samesite    =   'None'
+        )
+        return response
+        # return HttpResponseRedirect(self.success_url)
+        # return JsonResponse(data)
+
+    def get_user(self, user_id):
+        """Return a user based on the id."""
+
+        try:
+            return self.UserModel.objects.get(pk=user_id)
+        except self.UserModel.DoesNotExist:
+            return None
+    
+    def create_jwt(self, user):
+        """Create a JWT token from the given user."""
+        refresh = RefreshToken.for_user(user)
+        jwt_token = {
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+        }
+        # Add the JWT token to the user object or return it as required
+        user.jwt_token = jwt_token
+        return user
+    
     def get(self, request):
         """Callback handler for OIDC authorization code flow"""
 
@@ -123,7 +180,6 @@ class OIDCAuthenticationCallbackView(View):
             }
 
             self.user = auth.authenticate(**kwargs)
-
             if self.user and self.user.is_active:
                 return self.login_success()
         return self.login_failure()
@@ -234,7 +290,9 @@ class OIDCAuthenticationRequestView(View):
         redirect_url = "{url}?{query}".format(
             url=self.OIDC_OP_AUTH_ENDPOINT, query=query
         )
-        return HttpResponseRedirect(redirect_url)
+        # return HttpResponseRedirect(redirect_url)
+        print(redirect_url)
+        return JsonResponse({'redirect_url': redirect_url})
 
     def get_extra_params(self, request):
         return self.get_settings("OIDC_AUTH_REQUEST_EXTRA_PARAMS", {})

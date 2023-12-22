@@ -16,7 +16,10 @@ from josepy.jwk import JWK
 from josepy.jws import JWS, Header
 from requests.auth import HTTPBasicAuth
 
-from mozilla_django_oidc.utils import absolutify, import_from_settings
+from mozilla_django_oidc.utils          import absolutify, import_from_settings
+
+from rest_framework_simplejwt.tokens    import RefreshToken
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -72,7 +75,7 @@ class OIDCAuthenticationBackend(ModelBackend):
 
     def filter_users_by_claims(self, claims):
         """Return all users matching the specified email."""
-        email = claims.get("email")
+        email = claims.get("emails")[0] # Azure AD B2C responds back with a list of emails, we have edited this to make sure that we are only using the first email in the list
         if not email:
             return self.UserModel.objects.none()
         return self.UserModel.objects.filter(email__iexact=email)
@@ -85,6 +88,11 @@ class OIDCAuthenticationBackend(ModelBackend):
         if "email" in scopes.split():
             return "email" in claims
 
+        # Verify custom claims for AZURE AD B2C
+        # AZURE AD B2C responds with oid instead of openid
+        if "openid" in scopes.split(): # in our settings we will still pass openid as a scope because of the default configuration but we will check for oid instead of openid in the claims
+            return "oid" in claims
+
         LOGGER.warning(
             "Custom OIDC_RP_SCOPES defined. "
             "You need to override `verify_claims` for custom claims verification."
@@ -94,9 +102,17 @@ class OIDCAuthenticationBackend(ModelBackend):
 
     def create_user(self, claims):
         """Return object for a newly created user account."""
-        email = claims.get("email")
+        email = claims.get("emails")[0] # Azure AD B2C responds back with a list of emails, we have edited this to make sure that we are only using the first email in the list
+        claims["email"] = email
         username = self.get_username(claims)
-        return self.UserModel.objects.create_user(username, email=email)
+        # We have changed the way we are creating a user to accomodate the Django Tenant Users package
+        return self.UserModel.objects.create(
+            username=username, 
+            azure_id = claims['oid'], 
+            email=email, 
+            is_active=True,
+            extra_params = claims,
+        ) 
 
     def get_username(self, claims):
         """Generate username based on claims."""
@@ -249,7 +265,7 @@ class OIDCAuthenticationBackend(ModelBackend):
     def get_userinfo(self, access_token, id_token, payload):
         """Return user details dictionary. The id_token and payload are not used in
         the default implementation, but may be used when overriding this method"""
-
+        return payload # We have changed this to return the payload instead of the user_info because Azure AD B2C meta data document is not sending any api endpoint for us to fetch the claims/user info from. Instead it is sending the claims in the payload itself.
         user_response = requests.get(
             self.OIDC_OP_USER_ENDPOINT,
             headers={"Authorization": "Bearer {0}".format(access_token)},
@@ -292,9 +308,9 @@ class OIDCAuthenticationBackend(ModelBackend):
             token_payload.update({"code_verifier": code_verifier})
 
         # Get the token
-        token_info = self.get_token(token_payload)
-        id_token = token_info.get("id_token")
-        access_token = token_info.get("access_token")
+        token_info      = self.get_token(token_payload)
+        id_token        = token_info.get("id_token")
+        access_token    = token_info.get("access_token")
 
         # Validate the token
         payload = self.verify_token(id_token, nonce=nonce)
@@ -350,10 +366,3 @@ class OIDCAuthenticationBackend(ModelBackend):
             )
             return None
 
-    def get_user(self, user_id):
-        """Return a user based on the id."""
-
-        try:
-            return self.UserModel.objects.get(pk=user_id)
-        except self.UserModel.DoesNotExist:
-            return None
