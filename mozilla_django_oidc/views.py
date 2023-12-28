@@ -11,7 +11,9 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.module_loading import import_string
 from django.views.generic import View
 from rest_framework_simplejwt.tokens import RefreshToken
+from urllib.parse import urlencode, urljoin
 
+from mozilla_django_oidc.models import OIDCState
 from mozilla_django_oidc.utils import (
     absolutify,
     add_state_and_verifier_and_nonce_to_session,
@@ -68,39 +70,46 @@ class OIDCAuthenticationCallbackView(View):
         data = {
             'access_token': self.user.jwt_token["access"],
             'refresh_token': self.user.jwt_token["refresh"],
-            'user_id': self.user.get_json(),
-            'redirect_url': self.success_url,
+            'user_id': self.user.id,
+            # 'redirect_url': self.success_url,
         } 
 
-        # Create a response object for redirection
-        response = HttpResponseRedirect(data["redirect_url"])
+        # Encode the data dictionary into a query string
+        query_string = urlencode(data)
 
-        # Set cookies for access and refresh tokens
-        response.set_cookie(
-            'access_token', 
-            self.user.jwt_token["access"], 
-            domain      =   self.get_settings('SESSION_COOKIE_DOMAIN'),  # Allows access from all subdomains
-            secure      =   True,  # Ensures transmission only over HTTPS
-            # httponly=True, # If you want to prevent access via JavaScript
-            samesite    =   'None' # Necessary if cookies are accessed in cross-site context
-        )
-        response.set_cookie(
-            'refresh_token', 
-            self.user.jwt_token["refresh"], 
-            domain      =   self.get_settings('SESSION_COOKIE_DOMAIN'),
-            secure      =   True,
-            samesite    =   'None'
-        )
-        response.set_cookie(
-            'user_id', 
-            self.user.id, 
-            domain      =   self.get_settings('SESSION_COOKIE_DOMAIN'),
-            secure      =   True,
-            samesite    =   'None'
-        )
-        return response
-        # return HttpResponseRedirect(self.success_url)
-        # return JsonResponse(data)
+        # Append the query string to the base URL
+        redirect_url = urljoin("https://equisy.io/login-success", '?' + query_string)
+
+        # Create a response object for redirection
+        # response = HttpResponseRedirect(data["redirect_url"])
+
+        # # Set cookies for access and refresh tokens
+        # response.set_cookie(
+        #     'access_token', 
+        #     self.user.jwt_token["access"], 
+        #     domain      =   self.get_settings('SESSION_COOKIE_DOMAIN'),  # Allows access from all subdomains
+        #     secure      =   True,  # Ensures transmission only over HTTPS
+        #     # httponly=True, # If you want to prevent access via JavaScript
+        #     samesite    =   'None' # Necessary if cookies are accessed in cross-site context
+        # )
+        # response.set_cookie(
+        #     'refresh_token', 
+        #     self.user.jwt_token["refresh"], 
+        #     domain      =   self.get_settings('SESSION_COOKIE_DOMAIN'),
+        #     secure      =   True,
+        #     samesite    =   'None'
+        # )
+        # response.set_cookie(
+        #     'user_id', 
+        #     self.user.id, 
+        #     domain      =   self.get_settings('SESSION_COOKIE_DOMAIN'),
+        #     secure      =   True,
+        #     samesite    =   'None'
+        # )
+        # return response
+        # return JsonResponse(redirect_url)
+        return HttpResponseRedirect(redirect_url)
+    
 
     def get_user(self, user_id):
         """Return a user based on the id."""
@@ -129,49 +138,47 @@ class OIDCAuthenticationCallbackView(View):
 
             # Delete the state entry also for failed authentication attempts
             # to prevent replay attacks.
-            if (
-                "state" in request.GET
-                and "oidc_states" in request.session
-                and request.GET["state"] in request.session["oidc_states"]
-            ):
-                del request.session["oidc_states"][request.GET["state"]]
-                request.session.save()
+            # Retrieve and delete the state from the database if it exists
+            state = request.GET.get("state")
+            OIDCState.objects.filter(state=state).delete()
+
 
             # Make sure the user doesn't get to continue to be logged in
             # otherwise the refresh middleware will force the user to
             # redirect to authorize again if the session refresh has
             # expired.
+            # Logout the user if they are authenticated
             if request.user.is_authenticated:
                 auth.logout(request)
-            assert not request.user.is_authenticated
+
+            return self.login_failure()
+        
         elif "code" in request.GET and "state" in request.GET:
-
-            # Check instead of "oidc_state" check if the "oidc_states" session key exists!
-            if "oidc_states" not in request.session:
-                return self.login_failure()
-
-            # State, Nonce and PKCE Code Verifier are stored in the session "oidc_states"
-            # dictionary.
-            # State is the key, the value is a dictionary with the Nonce in the "nonce" field, and
-            # Code Verifier or None in the "code_verifier" field.
             state = request.GET.get("state")
-            if state not in request.session["oidc_states"]:
-                msg = "OIDC callback state not found in session `oidc_states`!"
-                raise SuspiciousOperation(msg)
+
+            # Retrieve the OIDC state from the database
+            try:
+                oidc_state = OIDCState.objects.get(state=state)
+            except OIDCState.DoesNotExist:
+                return self.login_failure()  # State not found in database
+
+
 
             # Get the nonce and optional code verifier from the dictionary for further processing
             # and delete the entry to prevent replay attacks.
-            code_verifier = request.session["oidc_states"][state].get("code_verifier")
-            nonce = request.session["oidc_states"][state]["nonce"]
-            del request.session["oidc_states"][state]
+            nonce           = oidc_state.nonce
+            code_verifier   = oidc_state.code_verifier
+            
+            # Delete the OIDC state entry from the database
+            oidc_state.delete()
 
             # Authenticating is slow, so save the updated oidc_states.
-            request.session.save()
+            # request.session.save()
             # Reset the session. This forces the session to get reloaded from the database after
             # fetching the token from the OpenID connect provider.
             # Without this step we would overwrite items that are being added/removed from the
             # session in parallel browser tabs.
-            request.session = request.session.__class__(request.session.session_key)
+            # request.session = request.session.__class__(request.session.session_key)
 
             kwargs = {
                 "request": request,
@@ -232,35 +239,42 @@ class OIDCAuthenticationRequestView(View):
         return import_from_settings(attr, *args)
 
     def get(self, request):
-        """OIDC client authentication initialization HTTP endpoint"""
+        """Handle the initial OIDC authentication request."""
+
+        # Generate a random state string for the OIDC request.
         state = get_random_string(self.get_settings("OIDC_STATE_SIZE", 32))
         redirect_field_name = self.get_settings("OIDC_REDIRECT_FIELD_NAME", "next")
         reverse_url = self.get_settings(
             "OIDC_AUTHENTICATION_CALLBACK_URL", "oidc_authentication_callback"
         )
 
+        # Initialize the parameters for the OIDC request.
         params = {
             "response_type": "code",
             "scope": self.get_settings("OIDC_RP_SCOPES", "openid email"),
             "client_id": self.OIDC_RP_CLIENT_ID,
-            "redirect_uri": absolutify(request, reverse(reverse_url)),
+            "redirect_uri": absolutify(request, reverse(reverse_url)).replace('http://', 'https://'),
             "state": state,
         }
 
+        # Add any extra parameters defined in settings.
         params.update(self.get_extra_params(request))
 
+        # Initialize nonce and code_verifier as None.
+        nonce = None
+        code_verifier = None
+
+        # Generate nonce if OIDC_USE_NONCE setting is enabled.
         if self.get_settings("OIDC_USE_NONCE", True):
             nonce = get_random_string(self.get_settings("OIDC_NONCE_SIZE", 32))
             params.update({"nonce": nonce})
 
+        # Generate PKCE code verifier and challenge if OIDC_USE_PKCE setting is enabled.
         if self.get_settings("OIDC_USE_PKCE", True):
             code_verifier_length = self.get_settings("OIDC_PKCE_CODE_VERIFIER_SIZE", 64)
-            # Check that code_verifier_length is between the min and max length
-            # defined in https://datatracker.ietf.org/doc/html/rfc7636#section-4.1
             if not (43 <= code_verifier_length <= 128):
                 raise ValueError("code_verifier_length must be between 43 and 128")
 
-            # Generate code_verifier and code_challenge pair
             code_verifier = get_random_string(code_verifier_length)
             code_challenge_method = self.get_settings(
                 "OIDC_PKCE_CODE_CHALLENGE_METHOD", "S256"
@@ -269,7 +283,7 @@ class OIDCAuthenticationRequestView(View):
                 code_verifier, code_challenge_method
             )
 
-            # Append code_challenge to authentication request parameters
+            # Add code_challenge and code_challenge_method to the OIDC parameters.
             params.update(
                 {
                     "code_challenge": code_challenge,
@@ -277,21 +291,24 @@ class OIDCAuthenticationRequestView(View):
                 }
             )
 
-        else:
-            code_verifier = None
-
-        add_state_and_verifier_and_nonce_to_session(
-            request, state, params, code_verifier
+        # Save the OIDC state, nonce, and code_verifier to the database.
+        oidc_state = OIDCState(
+            state=state,
+            nonce=nonce,
+            code_verifier=code_verifier,
         )
+        oidc_state.save()
 
+        # Save the next URL in the session for redirecting after authentication.
         request.session["oidc_login_next"] = get_next_url(request, redirect_field_name)
 
+        # Create the full redirect URL with the OIDC parameters.
         query = urlencode(params)
         redirect_url = "{url}?{query}".format(
             url=self.OIDC_OP_AUTH_ENDPOINT, query=query
         )
-        # return HttpResponseRedirect(redirect_url)
-        print(redirect_url)
+
+        # Return the redirect URL in a JSON response.
         return JsonResponse({'redirect_url': redirect_url})
 
     def get_extra_params(self, request):
