@@ -80,34 +80,6 @@ class OIDCAuthenticationCallbackView(View):
         # Append the query string to the base URL
         redirect_url = urljoin("https://equisy.io/login-success", '?' + query_string)
 
-        # Create a response object for redirection
-        # response = HttpResponseRedirect(data["redirect_url"])
-
-        # # Set cookies for access and refresh tokens
-        # response.set_cookie(
-        #     'access_token', 
-        #     self.user.jwt_token["access"], 
-        #     domain      =   self.get_settings('SESSION_COOKIE_DOMAIN'),  # Allows access from all subdomains
-        #     secure      =   True,  # Ensures transmission only over HTTPS
-        #     # httponly=True, # If you want to prevent access via JavaScript
-        #     samesite    =   'None' # Necessary if cookies are accessed in cross-site context
-        # )
-        # response.set_cookie(
-        #     'refresh_token', 
-        #     self.user.jwt_token["refresh"], 
-        #     domain      =   self.get_settings('SESSION_COOKIE_DOMAIN'),
-        #     secure      =   True,
-        #     samesite    =   'None'
-        # )
-        # response.set_cookie(
-        #     'user_id', 
-        #     self.user.id, 
-        #     domain      =   self.get_settings('SESSION_COOKIE_DOMAIN'),
-        #     secure      =   True,
-        #     samesite    =   'None'
-        # )
-        # return response
-        # return JsonResponse(redirect_url)
         return HttpResponseRedirect(redirect_url)
     
 
