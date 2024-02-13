@@ -1,4 +1,5 @@
 import time
+import datetime
 from urllib.parse import urlencode
 
 from django.contrib import auth
@@ -21,12 +22,24 @@ from mozilla_django_oidc.utils import (
     import_from_settings,
 )
 
+# Model Imports
+from public.models import Domain, Tenant
+from users.models import UserToken
+
+
+
+
 
 class OIDCAuthenticationCallbackView(View):
     """OIDC client authentication callback HTTP endpoint"""
 
     http_method_names = ["get"]
 
+    def generate_key(self):
+        # generate a random string
+        key = get_random_string(length=32)
+        return key
+        
     @staticmethod
     def get_settings(attr, *args):
         return import_from_settings(attr, *args)
@@ -67,20 +80,28 @@ class OIDCAuthenticationCallbackView(View):
 
         self.user = self.create_jwt(self.user)
         self.user.jwt_token["access"]
-        data = {
-            'access_token': self.user.jwt_token["access"],
-            'refresh_token': self.user.jwt_token["refresh"],
-            'user_id': self.user.id,
-            # 'redirect_url': self.success_url,
-        } 
+        
+        token = UserToken.objects.create(
+            user            =   self.user,
+            access_token    =   self.user.jwt_token["access"],
+            refresh_token   =   self.user.jwt_token["refresh"],
+            key             =   self.generate_key(),
+            expiry          =   2,
+        )
 
         # Encode the data dictionary into a query string
-        query_string = urlencode(data)
+        query_string = urlencode({'key' : token.key})
 
         # Append the query string to the base URL
-        redirect_url = urljoin("https://equisy.io/login-success", '?' + query_string)
-
-        return HttpResponseRedirect(redirect_url)
+        try:
+            redirect_url    =   Domain.objects.filter(tenant=self.user.get_tenant(), is_primary=True).first().domain
+        except:
+            redirect_url    =   'test.internal-equisy.io'
+        response        =   HttpResponseRedirect('https://'+redirect_url.replace('internal-','')+'/login-success?'+query_string)
+        
+        
+       
+        return response
     
 
     def get_user(self, user_id):
@@ -98,6 +119,11 @@ class OIDCAuthenticationCallbackView(View):
             'refresh': str(refresh),
             'access': str(refresh.access_token),
         }
+
+        # Increase the expiry of the token
+        expire_seconds = self.get_settings("OIDC_TOKEN_EXPIRE_SECONDS", 3600)
+        refresh.access_token.set_exp(lifetime=datetime.timedelta(seconds=expire_seconds))
+
         # Add the JWT token to the user object or return it as required
         user.jwt_token = jwt_token
         return user
@@ -280,8 +306,11 @@ class OIDCAuthenticationRequestView(View):
             url=self.OIDC_OP_AUTH_ENDPOINT, query=query
         )
 
+        
+
         # Return the redirect URL in a JSON response.
         return JsonResponse({'redirect_url': redirect_url})
+    
 
     def get_extra_params(self, request):
         return self.get_settings("OIDC_AUTH_REQUEST_EXTRA_PARAMS", {})

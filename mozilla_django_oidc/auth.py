@@ -318,6 +318,7 @@ class OIDCAuthenticationBackend(ModelBackend):
         if payload:
             self.store_tokens(access_token, id_token)
             try:
+                # self.request.user.is_authenticated = True
                 return self.get_or_create_user(access_token, id_token, payload)
             except SuspiciousOperation as exc:
                 LOGGER.warning("failed to get or create user: %s", exc)
