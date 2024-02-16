@@ -100,7 +100,7 @@ class OIDCAuthenticationCallbackView(View):
         response        =   HttpResponseRedirect('https://'+redirect_url.replace('internal-','')+'/login-success?'+query_string)
         
         
-       
+        
         return response
     
 
