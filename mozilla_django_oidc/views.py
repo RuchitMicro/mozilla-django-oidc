@@ -94,13 +94,14 @@ class OIDCAuthenticationCallbackView(View):
 
         # Append the query string to the base URL
         try:
-            redirect_url    =   'equisy.io/'+self.user.get_tenant() # Domain.objects.filter(tenant=self.user.get_tenant(), is_primary=True).first().domain
+            redirect_url    =   'equisy.io/'+str(Domain.objects.filter(tenant=self.user.get_tenant(), is_primary=True).first().tenant.id)
         except:
             redirect_url    =   'test.internal-equisy.io'
+        redirect_url    =   'equisy.io/'+str(Domain.objects.filter(tenant=self.user.get_tenant(), is_primary=True).first().tenant.id)
         response        =   HttpResponseRedirect('https://'+redirect_url.replace('internal-','')+'/login-success?'+query_string)
         
         
-        
+
         return response
     
 
