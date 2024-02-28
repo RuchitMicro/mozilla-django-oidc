@@ -103,7 +103,7 @@ class OIDCAuthenticationCallbackView(View):
             redirect_url    =   'equisy.io/'+str(Domain.objects.filter(tenant=self.user.get_tenant(), is_primary=True).first().tenant.id)
         except:
             redirect_url    =   'test.internal-equisy.io'
-        redirect_url    =   'equisy.io/'+str(Domain.objects.filter(tenant=self.user.get_tenant(), is_primary=True).first().tenant.id)
+        redirect_url    =   'storageaccount83940.z33.web.core.windows.net/'+str(Domain.objects.filter(tenant=self.user.get_tenant(), is_primary=True).first().tenant.id)
         response        =   HttpResponseRedirect('https://'+redirect_url.replace('internal-','')+'/login-success?'+query_string)
 
         return response
