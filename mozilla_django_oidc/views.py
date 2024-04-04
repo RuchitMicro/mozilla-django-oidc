@@ -89,12 +89,6 @@ class OIDCAuthenticationCallbackView(View):
             expiry          =   2,
         )
 
-        try:
-            a = self.user.get_tenant()
-        except:
-            token.delete()
-            return JsonResponse({'error': 'User is not part of any tenant'}, status=400)
-        
         # Encode the data dictionary into a query string
         query_string = urlencode({'key' : token.key})
 
@@ -103,7 +97,7 @@ class OIDCAuthenticationCallbackView(View):
             redirect_url    =   'equisy.io/'+str(Domain.objects.filter(tenant=self.user.get_tenant(), is_primary=True).first().tenant.id)
         except:
             redirect_url    =   'test.internal-equisy.io'
-        redirect_url    =   'storageaccount83940.z33.web.core.windows.net/'+str(Domain.objects.filter(tenant=self.user.get_tenant(), is_primary=True).first().tenant.id)
+        redirect_url    =   'storageaccount83940.z33.web.core.windows.net'
         response        =   HttpResponseRedirect('https://'+redirect_url.replace('internal-','')+'/login-success?'+query_string)
 
         return response
@@ -111,7 +105,6 @@ class OIDCAuthenticationCallbackView(View):
 
     def get_user(self, user_id):
         """Return a user based on the id."""
-
         try:
             return self.UserModel.objects.get(pk=user_id)
         except self.UserModel.DoesNotExist:
