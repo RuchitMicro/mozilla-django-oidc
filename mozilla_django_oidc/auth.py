@@ -107,11 +107,11 @@ class OIDCAuthenticationBackend(ModelBackend):
         username = self.get_username(claims)
         # We have changed the way we are creating a user to accomodate the Django Tenant Users package
         return self.UserModel.objects.create(
-            username=username, 
-            azure_id = claims['oid'], 
-            email=email, 
-            is_active=True,
-            extra_params = claims,
+            username        =   username,  
+            azure_id        =   claims['oid'], 
+            email           =   email, 
+            is_active       =   True,
+            extra_params    =   claims,
         ) 
 
     def get_username(self, claims):
