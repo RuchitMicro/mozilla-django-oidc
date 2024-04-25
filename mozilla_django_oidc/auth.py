@@ -105,6 +105,16 @@ class OIDCAuthenticationBackend(ModelBackend):
         email = claims.get("emails")[0] # Azure AD B2C responds back with a list of emails, we have edited this to make sure that we are only using the first email in the list
         claims["email"] = email
         username = self.get_username(claims)
+
+        # PRINT USER CLAIMS
+        print('USER CLAIMS ===========================================================')
+        print(claims)
+        print('=======================================================================')
+        # itterate through the claims and print them
+        for key, value in claims.items():
+            print(f'{key} : {value}')
+        print('=======================================================================')
+
         # We have changed the way we are creating a user to accomodate the Django Tenant Users package
         return self.UserModel.objects.create(
             username        =   username,  
