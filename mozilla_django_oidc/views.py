@@ -304,11 +304,81 @@ class OIDCAuthenticationRequestView(View):
             url=self.OIDC_OP_AUTH_ENDPOINT, query=query
         )
 
-        
-
         # Return the redirect URL in a JSON response.
         return JsonResponse({'redirect_url': redirect_url})
     
+    
+    def get_oidc_url(self, request):
+        """Handle the initial OIDC authentication request."""
+
+        # Generate a random state string for the OIDC request.
+        state = get_random_string(self.get_settings("OIDC_STATE_SIZE", 32))
+        redirect_field_name = self.get_settings("OIDC_REDIRECT_FIELD_NAME", "next")
+        reverse_url = self.get_settings(
+            "OIDC_AUTHENTICATION_CALLBACK_URL", "oidc_authentication_callback"
+        )
+
+        # Initialize the parameters for the OIDC request.
+        params = {
+            "response_type": "code",
+            "scope": self.get_settings("OIDC_RP_SCOPES", "openid email"),
+            "client_id": self.OIDC_RP_CLIENT_ID,
+            "redirect_uri": absolutify(request, reverse(reverse_url)).replace('http://', 'https://'),
+            "state": state,
+        }
+
+        # Add any extra parameters defined in settings.
+        params.update(self.get_extra_params(request))
+
+        # Initialize nonce and code_verifier as None.
+        nonce           = None
+        code_verifier   = None
+
+        # Generate nonce if OIDC_USE_NONCE setting is enabled.
+        if self.get_settings("OIDC_USE_NONCE", True):
+            nonce = get_random_string(self.get_settings("OIDC_NONCE_SIZE", 32))
+            params.update({"nonce": nonce})
+
+        # Generate PKCE code verifier and challenge if OIDC_USE_PKCE setting is enabled.
+        if self.get_settings("OIDC_USE_PKCE", True):
+            code_verifier_length = self.get_settings("OIDC_PKCE_CODE_VERIFIER_SIZE", 64)
+            if not (43 <= code_verifier_length <= 128):
+                raise ValueError("code_verifier_length must be between 43 and 128")
+
+            code_verifier = get_random_string(code_verifier_length)
+            code_challenge_method = self.get_settings(
+                "OIDC_PKCE_CODE_CHALLENGE_METHOD", "S256"
+            )
+            code_challenge = generate_code_challenge(
+                code_verifier, code_challenge_method
+            )
+
+            # Add code_challenge and code_challenge_method to the OIDC parameters.
+            params.update(
+                {
+                    "code_challenge": code_challenge,
+                    "code_challenge_method": code_challenge_method,
+                }
+            )
+
+        # Save the OIDC state, nonce, and code_verifier to the database.
+        oidc_state = OIDCState(
+            state=state,
+            nonce=nonce,
+            code_verifier=code_verifier,
+        )
+        oidc_state.save()
+
+        # Save the next URL in the session for redirecting after authentication.
+        request.session["oidc_login_next"] = get_next_url(request, redirect_field_name)
+
+        # Create the full redirect URL with the OIDC parameters.
+        query = urlencode(params)
+        redirect_url = "{url}?{query}".format(
+            url=self.OIDC_OP_AUTH_ENDPOINT, query=query
+        )
+
+        return redirect_url
 
     def get_extra_params(self, request):
         return self.get_settings("OIDC_AUTH_REQUEST_EXTRA_PARAMS", {})
