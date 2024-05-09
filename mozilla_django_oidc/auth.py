@@ -120,6 +120,13 @@ class OIDCAuthenticationBackend(ModelBackend):
             username        =   username,  
             azure_id        =   claims['oid'], 
             email           =   email, 
+
+            first_name      =   claims['extension_FirstName']   ,
+            last_name       =   claims['extension_LastName']    ,
+            phone_number    =   claims['extension_PhoneNo']     ,
+            country_code    =   claims['extension_CountryCode'] ,
+            user_type       =   claims['extension_UserType']    ,
+
             is_active       =   True,
             extra_params    =   claims,
         ) 
