@@ -24,7 +24,7 @@ from mozilla_django_oidc.utils import (
 
 # Model Imports
 from public.models import Domain, Tenant
-from users.models import UserToken
+from users.models import UserToken, UserSession
 
 
 
@@ -79,8 +79,7 @@ class OIDCAuthenticationCallbackView(View):
         )
 
         self.user = self.create_jwt(self.user)
-        self.user.jwt_token["access"]
-        
+
         token = UserToken.objects.create(
             user            =   self.user,
             access_token    =   self.user.jwt_token["access"],
@@ -89,6 +88,9 @@ class OIDCAuthenticationCallbackView(View):
             expiry          =   2,
         )
 
+        # UserSession.objects.filter(user=self.user).delete()
+        UserSession.objects.create(user=self.user, token_key=token.access_token)
+        
         # Encode the data dictionary into a query string
         query_string = urlencode({'key' : token.key})
 
@@ -411,6 +413,9 @@ class OIDCLogoutView(View):
 
             # Log out the Django user if they were logged in.
             auth.logout(request)
+
+            # Remove UserSession
+            UserSession.objects.filter(user=request.user).delete()
 
         return HttpResponseRedirect(logout_url)
 
