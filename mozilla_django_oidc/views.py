@@ -88,6 +88,10 @@ class OIDCAuthenticationCallbackView(View):
             expiry          =   2,
         )
 
+        # Send Welcome Email
+        if not self.user.is_welcome_send:
+            self.user.send_welcome_email(self.user.get_tenant())
+
         # UserSession.objects.filter(user=self.user).delete()
         UserSession.objects.create(user=self.user, token_key=token.access_token)
         

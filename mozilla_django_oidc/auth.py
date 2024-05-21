@@ -376,6 +376,7 @@ class OIDCAuthenticationBackend(ModelBackend):
             raise SuspiciousOperation(msg)
         elif self.get_settings("OIDC_CREATE_USER", True):
             user = self.create_user(user_info)
+            user.send_welcome_email()
             return user
         else:
             LOGGER.debug(
